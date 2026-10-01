@@ -1,0 +1,19 @@
+What should an organization consider when creating an AI governance policy?
+
+What are the key components of an effective AI governance framework?
+
+Why is AI governance important for enterprise AI adoption?
+
+What areas should an AI governance policy cover?
+
+How should organizations establish accountability for AI systems?
+
+Why should organizations define clear roles and responsibilities for AI systems?
+
+How can organizations manage risks through AI governance?
+
+What role does human oversight play in AI governance?
+
+How can an organization ensure responsible use of AI?
+
+What should organizations consider when establishing controls for enterprise AI?

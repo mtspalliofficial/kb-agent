@@ -1,0 +1,19 @@
+If 25 employees each save 4 hours per week and each hour is worth $60, what are the annual savings?
+
+A company saves 30 hours per week at $500 per hour and spends $100,000 on implementation. What is the first-year net savings?
+
+An AI project costs $80,000 and saves $12,000 per month. What is the net savings after one year?
+
+A company has 50 employees. Each saves 3 hours per week at $40 per hour. If implementation costs $20,000, what are the first-year net savings?
+
+Revenue is $250,000 and increases by 15%. What is the new revenue?
+
+A company has 200 employees, each saving 2.5 hours per week at $50 per hour. What are the annual savings?
+
+An AI system saves $15,000 per month. If implementation costs $50,000, what is the first-year net savings?
+
+A company reduces its operating cost of $120,000 by 20%, then spends $10,000 on implementation. What is the final net savings?
+
+An AI system saves 40 hours per week at $75 per hour. If it operates for only 45 weeks, what are the total savings?
+
+An implementation costs $150,000 and generates $25,000 in savings every month. What is the ROI after one year?

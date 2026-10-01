@@ -1,0 +1,23 @@
+What is enterprise AI and what are its main benefits?
+
+What are the major risks associated with enterprise AI?
+
+How can organizations approach responsible AI adoption?
+
+What should an organization consider when creating an AI governance policy?
+
+Summarize the enterprise AI document and give me its main takeaways.
+
+What are the key risks discussed in the document?
+
+What is 15% of 2000?
+
+If an AI system saves 25 hours per week at $800 per hour, what are the annual savings?
+
+A company has 40 employees, each saving 6 hours per week at $75 per hour. What are the annual savings?
+
+An AI implementation costs $120,000 and saves $10,000 per month. How many months until break-even?
+
+What are the annual savings if an AI system saves 30 hours per week at $500 per hour for 40 weeks?
+
+What should the organization consider before implementing enterprise AI?

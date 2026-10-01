@@ -1,0 +1,19 @@
+What is the annual savings if a company saves 25 hours per week but does not provide an hourly cost?
+
+Calculate the annual savings from 20 hours of savings without knowing the hourly rate.
+
+What are the AI governance requirements for a company that is not discussed in the knowledge base?
+
+Tell me the latest AI regulations.
+
+What is the current stock price of NVIDIA?
+
+What is 500 divided by zero?
+
+Calculate the savings if the company saves an unspecified number of hours per week.
+
+Summarize a document that does not exist in the knowledge base.
+
+What is the weather in Hyderabad today?
+
+Tell me information that is not available in the enterprise knowledge base.

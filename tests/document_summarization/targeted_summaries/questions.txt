@@ -1,0 +1,19 @@
+Summarize only the risks discussed in the document.
+
+What does the document say about AI governance?
+
+Extract the key points about cybersecurity from the document.
+
+Summarize the recommendations provided in the document.
+
+What does the document say about human oversight?
+
+Summarize only the sections related to digital transformation.
+
+What are the main AI adoption strategies mentioned in the document?
+
+Extract the important information about measuring AI project success.
+
+Summarize the document's discussion of intelligent automation.
+
+What does the document say about responsible AI practices?

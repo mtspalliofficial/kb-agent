@@ -1,0 +1,19 @@
+Summarize the entire document and identify the five most important points.
+
+Give me an executive summary of the document, including its main objectives, risks, and recommendations.
+
+Summarize each major section of the document.
+
+What are the main arguments and conclusions presented in the document?
+
+Identify the key findings from the entire document.
+
+Summarize the document while preserving the important technical details.
+
+What are the most important risks, opportunities, and recommendations discussed in the document?
+
+Give me a structured summary of the document.
+
+What are the main themes discussed throughout the document?
+
+Summarize the document in a way that would be useful for a senior management review.

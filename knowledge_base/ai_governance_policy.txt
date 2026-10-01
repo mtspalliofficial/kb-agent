@@ -1,0 +1,38 @@
+ENTERPRISE AI GOVERNANCE POLICY
+
+This document defines organizational policy for the responsible use of
+artificial intelligence systems.
+
+1. DATA PRIVACY POLICY
+All AI systems that process personal or customer data must comply with
+applicable data protection regulations. Personal data used for AI training
+or inference must be anonymized or pseudonymized wherever technically
+feasible. Data retention for AI training datasets is limited to 24 months
+unless a longer period is required by law.
+
+2. HUMAN OVERSIGHT POLICY
+Any AI-generated decision that materially affects a customer's financial
+standing, employment status, or legal rights must be reviewed by a human
+before being finalized. Fully automated decision-making is prohibited in
+these categories.
+
+3. MODEL RISK AND BIAS POLICY
+All AI models must undergo a bias and fairness assessment before deployment
+to production. Models must be re-evaluated for bias at least once every 12
+months, or immediately after any significant retraining.
+
+4. SECURITY POLICY
+AI systems must be deployed within the organization's approved security
+perimeter. Any AI system with access to production data must undergo a
+security review prior to launch, and access must follow the principle of
+least privilege.
+
+5. REGULATORY COMPLIANCE POLICY
+Teams deploying AI systems in regulated domains (finance, healthcare, HR)
+must consult the Compliance team before deployment and maintain
+documentation demonstrating adherence to relevant regulatory requirements.
+
+6. VENDOR AND THIRD-PARTY AI POLICY
+Any third-party AI vendor or tool must be reviewed and approved by IT
+Security and Legal before being integrated into company systems or given
+access to company data.
