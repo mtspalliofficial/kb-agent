@@ -17,30 +17,48 @@ User query
 Streamlit UI
      |
      v
-Agent (intent classification + routing)
+Agent (fast-path routing + LLM classification)
      |
-     +-------------------+-------------------+-------------------+
-     |                   |                   |                   |
-     v                   v                   v                   v
-Knowledge           Policy Analysis      Calculator       Document
-Retrieval (RAG)         (RAG + LLM)      (LLM + logic)    Summarization
-     |                   |                   |                   |
-     +-------------------+-------------------+-------------------+
+     +-------------+-------------+-------------+-------------+
+     |             |             |             |             |
+     v             v             v             v             v
+Knowledge      Policy        Calculator    Date/Time     Summarize
+Retrieval      Analysis      (regex +      (regex only)  (retrieval +
+(RAG + JSON)   (RAG + JSON)   AST + LLM)                 summarizer)
+     |             |             |             |             |
+     +-------------+-------------+-------------+-------------+
                              |
                              v
                     ChromaDB + Ollama
                              |
                              v
                          Response
-                   (answer + sources)
+                   (answer + sources + route)
                              |
                              v
                      Streamlit UI
 ```
 
-The agent (`agent/agent.py`) acts as the orchestrator. It classifies the user's intent using a local LLM and routes the question to the appropriate capability.
+A question with no clear match for either knowledge or capability falls
+through to an `out_of_scope` response rather than being forced into one of
+the five routes above.
 
-Because a small local 4B model can occasionally produce unexpected classification output, the agent validates the model's classification and uses deterministic fallback routing when the expected output is not produced. This hybrid approach improves routing reliability while keeping the system local.
+The agent (`agent/agent.py`) acts as the orchestrator, in two stages:
+
+1. **Fast-path detection (no LLM call).** Regex checks first identify
+   obvious date questions and obvious math questions. This means the two
+   most common question types never depend on the LLM's judgment at all —
+   both faster and more reliable than routing everything through a single
+   classification call.
+2. **LLM classification (for everything else).** A prompt asks the model
+   to choose between `knowledge_qa`, `policy_analysis`, `summarize`, or
+   `out_of_scope`. The response is parsed using explicit `ANSWER_START` /
+   `ANSWER_END` markers rather than scanning the model's raw output —
+   scanning raw text for category names is unreliable, since a model's own
+   reasoning text often mentions every category while "thinking out loud,"
+   producing false matches. If the LLM call fails or returns something
+   unparseable, a keyword fallback decides between `summarize`,
+   `policy_analysis`, and `knowledge_qa` (the default).
 
 ---
 
@@ -55,7 +73,10 @@ These terms are used deliberately throughout the codebase.
 | **In this project** | `knowledge_retrieval.py`, `policy_analysis.py` | `calculator/`, `date_time/`, `document_summarization/` |
 | **Typical implementation** | Retrieval + LLM reasoning | Deterministic logic and/or LLM-assisted processing |
 
-`document_summarization` is implemented as a tool. The `summarize` route retrieves relevant document content and then invokes the summarization capability, demonstrating combined retrieval and tool usage.
+`document_summarization` is implemented as a tool. The `summarize` route
+retrieves relevant document content via the Knowledge Retrieval skill and
+then invokes the summarization tool, demonstrating combined retrieval and
+tool usage.
 
 ---
 
@@ -64,7 +85,7 @@ These terms are used deliberately throughout the codebase.
 | # | Capability | Where it is demonstrated |
 |---|---|---|
 | 1 | Knowledge retrieval | `knowledge_qa` route using ChromaDB + LLM |
-| 2 | Skill selection | Intent classification and routing in `agent.py` |
+| 2 | Skill selection | Fast-path routing and LLM intent classification in `agent.py` |
 | 3 | Tool invocation | Calculator, date/time, and document summarization routes |
 | 4 | Combined retrieval + tool usage | Summarization route retrieves relevant content before summarizing |
 | 5 | Source-grounded responses | Routes expose retrieved source information where applicable |
@@ -80,19 +101,19 @@ These terms are used deliberately throughout the codebase.
 kb-agent/
 │
 ├── agent/
-│   └── agent.py                 # Intent classification + routing
+│   └── agent.py                 # Fast-path + LLM intent classification, routing
 │
 ├── skills/
-│   ├── knowledge_retrieval.py   # Knowledge retrieval
-│   └── policy_analysis.py       # Retrieval + structured LLM analysis
+│   ├── knowledge_retrieval.py   # Pure retrieval (no generation)
+│   └── policy_analysis.py       # Retrieval + structured JSON-mode LLM analysis
 │
 ├── tools/
-│   ├── calculator/
-│   ├── date_time/
-│   └── document_summarization/
+│   ├── calculator/               # AST-validated arithmetic evaluation
+│   ├── date_time/                 # ISO + month-name date parsing
+│   └── document_summarization/   # Summarizes text passed to it
 │
 ├── rag/
-│   ├── ask.py                   # Knowledge Q&A
+│   ├── ask.py                   # Knowledge Q&A (retrieval + JSON-mode generation)
 │   ├── retrieve.py              # Shared ChromaDB retrieval
 │   └── build_index.py           # Builds/rebuilds the ChromaDB index
 │
@@ -141,7 +162,8 @@ This document provides the policy-specific knowledge used by the policy analysis
 - **ChromaDB** — vector database
 - **nomic-embed-text** — embedding model
 - **Streamlit** — user interface
-- **Regex / deterministic logic** — fast handling of structured calculator and routing cases
+- **Regex / deterministic logic** — fast handling of structured calculator, date, and routing cases
+- **AST-based expression validation** — the calculator never calls Python's `eval()` directly; expressions are parsed into an AST and walked node-by-node, allowing only numeric constants and arithmetic operators
 
 ---
 
@@ -201,31 +223,56 @@ An AI implementation costs $120,000 and saves $10,000
 per month. How many months until break-even?
 ```
 
-The calculator pipeline separates **expression extraction** from **expression evaluation**:
+The calculator pipeline separates **expression extraction** from **expression evaluation**, and tries the fastest, most reliable method first:
 
 ```text
 Natural-language question
-        ↓
-Expression extraction
-        ↓
-Validated mathematical expression
-        ↓
-Calculator
-        ↓
+        |
+        v
+Already a plain expression? ----yes----> skip ahead to validation
+        | no
+        v
+Deterministic regex patterns
+(percent-of, increase/decrease, value
+ changes, monthly-to-annual, etc.)
+        |
+        | no match
+        v
+LLM few-shot translation
+(converts meaning into an expression,
+ does not solve it itself)
+        |
+        v
+AST-based validation
+(numeric constants + arithmetic
+ operators only — no eval() of
+ arbitrary input)
+        |
+        v
+Calculator evaluates
+        |
+        v
 Result
 ```
 
-The calculator does not directly execute arbitrary natural-language input. The extracted expression is restricted to supported mathematical operations before evaluation.
+Most common phrasings (basic arithmetic, percentages, increases/decreases,
+monthly-to-annual conversion) are resolved by the deterministic regex
+patterns alone, with no LLM call needed. Only less common or more
+open-ended phrasing falls through to the LLM translation step — which
+still produces a plain expression, validated the same way, before the
+calculator ever evaluates it.
 
-When required information is missing, the system is designed to avoid inventing a value and instead indicate that the calculation cannot be completed from the provided information.
+When required information is missing, the system is designed to avoid
+inventing a value and instead indicate that the calculation cannot be
+completed from the provided information.
 
 ---
 
 ## Policy Analysis
 
-The policy analysis capability retrieves relevant information from the governance knowledge base and uses the local LLM to produce a structured answer.
+The policy analysis capability retrieves relevant information from the governance knowledge base and uses the local LLM, constrained to JSON output, to produce a structured three-part answer: **policy information**, **analysis**, and **practical implication**.
 
-It is grounded in the project's knowledge base rather than relying on unsupported external information.
+JSON-constrained generation (`format="json"` in the Ollama API call) was adopted specifically after free-text generation repeatedly let the model's internal reasoning leak into the final answer — this local model tends to "think out loud" in plain text even when explicitly instructed not to, and constraining the output grammar from the first generated token proved far more reliable than trying to strip reasoning out afterward.
 
 This allows the system to distinguish between:
 
@@ -235,9 +282,32 @@ This allows the system to distinguish between:
 
 ---
 
+## Knowledge Q&A
+
+General factual questions about enterprise AI (capabilities, risks,
+implementation approach, success metrics) are answered the same way as
+policy questions — retrieval followed by JSON-constrained generation —
+for the same reason: it keeps the model's raw reasoning out of the final
+answer shown to the user.
+
+---
+
+## Date / Time
+
+The date/time tool resolves entirely through regex, with no LLM call at
+any point. It supports:
+
+- Today's date, current year
+- A date in `YYYY-MM-DD` format, or by month name (e.g. "December 31")
+- Days until / since a given date
+- Days between two dates
+- A date N days from today
+
+---
+
 ## Document Summarization
 
-The document summarization capability retrieves relevant document content and generates a concise summary based on the retrieved information.
+The document summarization capability retrieves relevant document content via the Knowledge Retrieval skill and generates a concise summary based on the retrieved information.
 
 It supports requests such as:
 
@@ -324,7 +394,11 @@ The test scenarios cover:
 
 The application runs the LLM locally through Ollama. Response time therefore depends on the hardware running the model.
 
-Some routes require more processing than others, particularly routes that combine retrieval with additional LLM reasoning.
+Routes that combine retrieval with LLM reasoning (knowledge Q&A, policy analysis) are noticeably slower than routes that resolve without any LLM call (date/time, and most calculator questions).
+
+### Reasoning leakage, and why JSON mode is used
+
+Qwen3 4B is a hybrid-reasoning model: even with `think=False` set and explicit "do not show your reasoning" instructions in the prompt, it would frequently reason in plain text before producing its real answer, and that reasoning could leak into the final output if the model ran out of its token budget before finishing. JSON-constrained generation (`format="json"`) proved to be a more reliable fix than trying to detect and strip reasoning after the fact, since it constrains the output grammar from the very first generated token.
 
 ### Hardware
 
@@ -334,9 +408,9 @@ Qwen3 4B was selected as a practical local-model choice for this hardware. Large
 
 ### Calculator extraction
 
-The calculator handles common mathematical and business-calculation patterns directly and uses LLM-assisted extraction for more varied natural-language phrasing.
+The calculator handles common mathematical and business-calculation patterns directly via deterministic regex, and uses LLM-assisted extraction for more varied natural-language phrasing. Every extracted expression — whether from regex or the LLM — passes through the same AST-based validation before being evaluated.
 
-Because natural-language interpretation is performed by a language model, unusual or ambiguous questions may still require additional validation.
+Because natural-language interpretation for uncommon phrasing is performed by a language model, unusual or ambiguous questions may still require additional validation.
 
 The system is designed to avoid inventing missing numerical information.
 
@@ -348,7 +422,7 @@ Each question is classified and processed independently.
 
 ### Single-intent routing
 
-The current agent is designed around **single-intent questions**. A question containing multiple independent tasks may be routed according to the detected primary intent rather than executing multiple capabilities simultaneously.
+The current agent is designed around **single-intent questions**. A question containing multiple independent tasks is routed according to the detected primary intent rather than executing multiple capabilities and combining the results.
 
 For example:
 

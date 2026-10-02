@@ -1,4 +1,5 @@
 import sys
+import json
 import re
 from pathlib import Path
 
@@ -9,30 +10,60 @@ if str(PROJECT_ROOT) not in sys.path:
 from rag.retrieve import search_knowledge_base
 import ollama
 
+MODEL = "qwen3:4b"
+TOP_K = 4
+MAX_TOKENS = 900
+TEMPERATURE = 0.1
 
-def _strip_thinking(text):
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    if "</think>" in text:
-        text = text.split("</think>", 1)[1]
+FALLBACK = "Not covered by the provided knowledge base."
+
+PLACEHOLDER_PATTERNS = (
+    "<text>", "(your answer)", "[your answer]",
+    "replace this", "insert answer", "your response here",
+    "[our answer]", "(our answer)"
+)
+
+
+def _strip_code_fences(text):
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
     return text.strip()
 
 
-def _extract_marked(text, start="ANSWER_START", end="ANSWER_END"):
-    match = re.search(
-        re.escape(start) + r"(.*?)" + re.escape(end),
-        text,
-        re.DOTALL | re.IGNORECASE
-    )
-
+def _extract_field_via_regex(text, field_name):
+    pattern = rf'"{field_name}"\s*:\s*"((?:[^"\\]|\\.)*)"'
+    match = re.search(pattern, text, re.DOTALL)
     if match:
-        result = match.group(1).strip()
-    else:
-        result = _strip_thinking(text)
+        value = match.group(1).replace('\\"', '"').replace("\\n", " ").strip()
+        return value if value else None
+    return None
 
-    # Safety net: strip any leftover literal marker text
-    result = result.replace(start, "").replace(end, "").strip()
 
-    return result
+def _parse_policy_json(raw_text):
+    for candidate in (raw_text, _strip_code_fences(raw_text)):
+        try:
+            data = json.loads(candidate)
+            return {
+                "policy_information": str(data.get("policy_information", FALLBACK)),
+                "analysis": str(data.get("analysis", FALLBACK)),
+                "practical_implication": str(data.get("practical_implication", FALLBACK)),
+            }
+        except (TypeError, json.JSONDecodeError):
+            continue
+
+    recovered = {}
+    for field in ("policy_information", "analysis", "practical_implication"):
+        value = _extract_field_via_regex(raw_text, field)
+        recovered[field] = value if value else FALLBACK
+    return recovered
+
+
+def _clean_field(value):
+    value = (value or "").strip()
+    if not value or any(p in value.lower() for p in PLACEHOLDER_PATTERNS):
+        return FALLBACK
+    return value
 
 
 def policy_analysis(question):
@@ -40,104 +71,122 @@ def policy_analysis(question):
     if not question or not question.strip():
         return {"answer": "Error: no question provided.", "sources": []}
 
-    results = search_knowledge_base(
-        question,
-        number_of_results=3
-    )
+    question = question.strip()
 
-    documents = results["documents"][0]
-    metadatas = results["metadatas"][0]
+    try:
+        results = search_knowledge_base(question, number_of_results=TOP_K)
+    except Exception as e:
+        return {"answer": f"Error: knowledge retrieval failed — {e}", "sources": []}
+
+    documents = results.get("documents") or []
+    metadatas = results.get("metadatas") or []
+    documents = documents[0] if documents else []
+    metadatas = metadatas[0] if metadatas else []
 
     if not documents:
         return {
-            "answer": "I don't have enough information in the knowledge base to answer that.",
+            "answer": (
+                f"Policy information: {FALLBACK}\n\n"
+                f"Analysis: {FALLBACK}\n\n"
+                f"Practical implication: {FALLBACK}"
+            ),
             "sources": []
         }
 
     context_parts = []
-
     for document, metadata in zip(documents, metadatas):
-        context_parts.append(
-            f"Source: {metadata.get('source', 'Unknown source')}\n"
-            f"Content:\n{document}"
-        )
-
-    context = "\n\n".join(context_parts)
+        metadata = metadata or {}
+        source = metadata.get("source", "Unknown source")
+        context_parts.append(f"SOURCE: {source}\n{document}")
+    context = "\n\n---\n\n".join(context_parts)
 
     prompt = f"""
-You are a policy analysis assistant. /no_think
+You are an Enterprise AI Policy Assistant.
 
-Analyze the user's question using ONLY the supplied knowledge base context.
-Do not invent policies or facts.
+Answer the user's question using ONLY the supplied knowledge base.
 
-Respond in EXACTLY this format and nothing else — no reasoning, no extra
-text before ANSWER_START or after ANSWER_END. Replace each line with your
-own real answer — never write the literal words "<text>" or leave a
-placeholder. If the knowledge base does not contain relevant information,
-write exactly "Not covered by the provided knowledge base." on all three
-lines instead.
+RULES:
+- Base every statement on the knowledge base provided below.
+- You MAY combine, synthesize, and explain multiple related points from
+  the knowledge base in your own words — this is expected for "why" and
+  "how" questions — but never introduce a fact, rule, or number that is
+  not present in the knowledge base.
+- Do not make assumptions beyond what the knowledge base supports.
+- If the knowledge base genuinely does not address the question's topic
+  at all, use exactly: "{FALLBACK}"
+- Keep each field to 2-4 sentences — thorough but not exhaustive.
+- Return ONLY valid JSON. No markdown, no code fences, no text outside
+  the JSON object.
+
+Return exactly these three fields:
+
+{{
+  "policy_information": "...",
+  "analysis": "...",
+  "practical_implication": "..."
+}}
 
 KNOWLEDGE BASE:
 {context}
 
 USER QUESTION:
 {question}
-
-ANSWER_START
-Policy information: (your answer, or "Not covered by the provided knowledge base.")
-Analysis: (your answer, or "Not covered by the provided knowledge base.")
-Practical implication: (your answer, or "Not covered by the provided knowledge base.")
-ANSWER_END
 """
 
     try:
         response = ollama.chat(
-            model="qwen3:4b",
+            model=MODEL,
             messages=[{"role": "user", "content": prompt}],
-            think=False,
             stream=False,
-            options={"temperature": 0.2, "num_predict": 1400}
+            think=False,
+            format="json",
+            options={"temperature": TEMPERATURE, "num_predict": MAX_TOKENS}
         )
-        raw_answer = response["message"]["content"]
     except TypeError:
-        response = ollama.chat(
-            model="qwen3:4b",
-            messages=[{"role": "user", "content": prompt}],
-            stream=False
-        )
-        raw_answer = response["message"]["content"]
-    except Exception as e:
-        return {
-            "answer": f"Error: policy analysis failed — is Ollama running? ({e})",
-            "sources": []
-        }
-
-    answer = _extract_marked(raw_answer)
-
-    # Safety net: catch unfilled placeholders or empty output regardless
-    # of whether the model followed the prompt's instructions
-    if "<text>" in answer.lower() or not answer.strip():
-        answer = "I don't have enough information in the knowledge base to answer that."
-
-    return {
-        "answer": answer,
-        "sources": list(
-            dict.fromkeys(
-                metadata.get("source", "Unknown source")
-                for metadata in metadatas
+        try:
+            response = ollama.chat(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+                format="json",
+                options={"temperature": TEMPERATURE, "num_predict": MAX_TOKENS}
             )
-        )
-    }
+        except Exception as e:
+            return {"answer": f"Error: policy analysis failed — {e}", "sources": []}
+    except Exception as e:
+        return {"answer": f"Error: policy analysis failed — is Ollama running? ({e})", "sources": []}
+
+    raw_answer = response.get("message", {}).get("content", "").strip()
+    if not raw_answer:
+        return {"answer": "Error: the policy model returned an empty response.", "sources": []}
+
+    data = _parse_policy_json(raw_answer)
+
+    policy_information = _clean_field(data.get("policy_information"))
+    analysis = _clean_field(data.get("analysis"))
+    practical_implication = _clean_field(data.get("practical_implication"))
+
+    final_answer = (
+        f"Policy information: {policy_information}\n\n"
+        f"Analysis: {analysis}\n\n"
+        f"Practical implication: {practical_implication}"
+    )
+
+    sources = []
+    for metadata in metadatas:
+        metadata = metadata or {}
+        source = metadata.get("source", "Unknown source")
+        if source not in sources:
+            sources.append(source)
+
+    return {"answer": final_answer, "sources": sources}
 
 
 if __name__ == "__main__":
-
-    question = input("Enter a policy question: ")
+    question = input("Enter a policy question: ").strip()
     result = policy_analysis(question)
-
     print("\nPolicy Analysis:\n")
     print(result["answer"])
-
     print("\nSources:")
     for source in result["sources"]:
         print(f"- {source}")
